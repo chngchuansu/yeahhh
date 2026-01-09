@@ -1,0 +1,38 @@
+name: CXBX-Reloaded Debug Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+  pull_request:
+
+jobs:
+  build-debug:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Configure CMake (Debug)
+      run: |
+        cmake -S . -B build-debug `
+          -DCMAKE_BUILD_TYPE=Debug `
+          -A x64
+
+    - name: Build (Debug)
+      run: |
+        cmake --build build-debug --config Debug
+
+    - name: Upload Debug Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: cxbx-reloaded-debug
+        path: |
+          build-debug/**/Debug/*.exe
+          build-debug/**/Debug/*.pdb
