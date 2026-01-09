@@ -1,0 +1,100 @@
+name: CXBX-Reloaded CI
+
+on:
+  push:
+    paths-ignore:
+      - '.gitattributes'
+      - '.github/*'
+      - '.github/*_TEMPLATE/**'
+      - '.gitignore'
+      - '*.bat'
+      - '*.yml'
+      - 'doc/**'
+  pull_request:
+    paths-ignore:
+      - '.gitattributes'
+      - '.github/*'
+      - '.github/*_TEMPLATE/**'
+      - '.gitignore'
+      - '*.bat'
+      - '*.yml'
+      - 'doc/**'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows (${{ matrix.configuration }})
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Release, Debug]
+    steps:
+      # 1️⃣ Checkout repository
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 2️⃣ Configure CMake for x64
+      - name: Generate CMake files
+        run: cmake -B build -A x64 -DBUILD_CXBXR_DEBUGGER=ON -DCMAKE_SYSTEM_VERSION=7 `
+             -DCMAKE_CXX_FLAGS_DEBUG="/D_DEBUG /Zi /Od"
+
+      # 3️⃣ Build Debug/Release
+      - name: Build
+        run: cmake --build build --config ${{ matrix.configuration }} -j $env:NUMBER_OF_PROCESSORS
+
+      # 4️⃣ Prepare artifacts folder
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts/${{ matrix.configuration }}
+          cmake --install build --config ${{ matrix.configuration }} --prefix artifacts/${{ matrix.configuration }}
+
+      # 5️⃣ Verify PDBs for Debug
+      - name: Verify Debug symbols
+        if: matrix.configuration == 'Debug'
+        run: dir artifacts/Debug/bin/*.pdb
+
+      # 6️⃣ Upload artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CxbxReloaded-${{ matrix.configuration }}
+          path: artifacts/${{ matrix.configuration }}/bin
+          if-no-files-found: error
+
+  release:
+    if: |
+      github.event.action != 'pull_request' &&
+      github.ref == 'refs/heads/master' &&
+      github.repository == 'Cxbx-Reloaded/Cxbx-Reloaded'
+    needs: build-windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1️⃣ Download both Debug and Release artifacts
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # 2️⃣ Zip each artifact folder
+      - name: Re-zip artifacts
+        id: zip
+        run: |
+          for artifact in artifacts/*; do
+            7z a ${artifact}.zip "./${artifact}/*"
+            if [ $(stat -c %s ${artifact}.zip) -le 100000 ]; then
+              echo "Error: Archive ${artifact}.zip too small!"
+              exit 1
+            fi
+          done
+          echo "tag_name=CI-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # 3️⃣ Create GitHub Release
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create ${{ steps.zip.outputs.tag_name }} artifacts/*.zip -p \
+             --target $GITHUB_SHA --title '${{ steps.zip.outputs.tag_name }}'
