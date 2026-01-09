@@ -1,0 +1,66 @@
+name: CXBX-Reloaded Debug CI
+
+on:
+  push:
+    paths-ignore:
+      - '.gitattributes'
+      - '.github/*'
+      - '.github/*_TEMPLATE/**'
+      - '.gitignore'
+      - '*.bat'
+      - '*.yml'
+      - 'doc/**'
+  pull_request:
+    paths-ignore:
+      - '.gitattributes'
+      - '.github/*'
+      - '.github/*_TEMPLATE/**'
+      - '.gitignore'
+      - '*.bat'
+      - '*.yml'
+      - 'doc/**'
+  workflow_dispatch:
+
+jobs:
+  build-debug:
+    name: Build Debug (Windows)
+    runs-on: windows-2025
+    steps:
+      # 1️⃣ Checkout repository with submodules
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 2️⃣ Configure CMake for true Debug
+      - name: Configure CMake
+        run: |
+          cmake -B build -A x64 -DBUILD_CXBXR_DEBUGGER=ON -DCMAKE_SYSTEM_VERSION=7 `
+                -DCMAKE_CXX_FLAGS_DEBUG="/D_DEBUG /Zi /Od /RTC1" `
+                -DCMAKE_C_FLAGS_DEBUG="/D_DEBUG /Zi /Od /RTC1"
+
+      # 3️⃣ Build Debug using INSTALL target
+      - name: Build Debug
+        run: cmake --build build --config Debug --target INSTALL -j $env:NUMBER_OF_PROCESSORS
+
+      # 4️⃣ Prepare Debug artifacts
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts/Debug
+          cp -r build/Debug/bin/* artifacts/Debug/
+
+      # 5️⃣ Verify Debug symbols exist
+      - name: Verify Debug symbols
+        run: dir artifacts/Debug/*.pdb
+
+      # 6️⃣ Zip the Debug artifacts
+      - name: Zip Debug artifacts
+        run: |
+          powershell -Command "Compress-Archive -Path artifacts/Debug/* -DestinationPath artifacts/CxbxReloaded-Debug.zip -Force"
+
+      # 7️⃣ Upload the zipped Debug artifact
+      - name: Upload Debug ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: CxbxReloaded-Debug
+          path: artifacts/CxbxReloaded-Debug.zip
+          if-no-files-found: error
